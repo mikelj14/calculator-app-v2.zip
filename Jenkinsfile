@@ -63,13 +63,17 @@ pipeline {
                 echo 'Deploying fresh container version to Production EC2...'
                 withCredentials([sshUserPrivateKey(credentialsId: 'ec2-ssh-key', keyFileVariable: 'SSH_KEY', usernameVariable: 'SSH_USER')]) {
                     sh """
-                       ssh -o StrictHostKeyChecking=no -i ${SSH_KEY} ${SSH_USER}@${EC2_PUBLIC_IP} '
-                           aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin 992382545251.dkr.ecr.us-east-1.amazonaws.com
+                       # 1. Generate ECR token locally on Jenkins
+                       ECR_TOKEN=\$(aws ecr get-login-password --region us-east-1)
+                       
+                       # 2. Pass token over SSH and restart app container
+                       ssh -o StrictHostKeyChecking=no -i ${SSH_KEY} ${SSH_USER}@${EC2_PUBLIC_IP} "
+                           echo \$ECR_TOKEN | docker login --username AWS --password-stdin 992382545251.dkr.ecr.us-east-1.amazonaws.com
                            docker pull ${ECR_REGISTRY}:latest
                            docker stop ${IMAGE_NAME} || true
                            docker rm ${IMAGE_NAME} || true
                            docker run -d --name ${IMAGE_NAME} -p 80:5000 ${ECR_REGISTRY}:latest
-                       '
+                       "
                     """
                 }
             }
