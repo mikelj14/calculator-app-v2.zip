@@ -14,29 +14,44 @@ pipeline {
 
     stages {
         // ==========================================
-        // CI STAGES 
+        // CI STAGES (Forced to run on isolated Docker Agents)
         // ==========================================
         stage('Build Container Image') {
-            agent any
+            agent { 
+                docker { 
+                    image 'docker:latest'
+                    args '-v /var/run/docker.sock:/var/run/docker.sock'
+                } 
+            }
             steps {
                 checkout scm
-                echo "Building image: ${IMAGE_NAME}:${IMAGE_TAG}"
+                echo "Building image reference: ${IMAGE_NAME}:${IMAGE_TAG}"
                 sh "docker build -t ${IMAGE_NAME}:${IMAGE_TAG} ."
             }
         }
 
         stage('Test') {
-            agent any
+            agent { 
+                docker { 
+                    image 'docker:latest'
+                    args '-v /var/run/docker.sock:/var/run/docker.sock'
+                } 
+            }
             steps {
-                echo 'Executing unit tests...'
+                echo "Executing verification tests for build reference: ${IMAGE_NAME}:${IMAGE_TAG}"
                 sh "docker run --rm -v \$(pwd):/reports -e PYTHONPATH=/app ${IMAGE_NAME}:${IMAGE_TAG} pytest --junitxml=/reports/test-results.xml"
             }
         }
 
         stage('Push to ECR') {
-            agent any
+            agent { 
+                docker { 
+                    image 'amazon/aws-cli:latest'
+                    args '-v /var/run/docker.sock:/var/run/docker.sock -v /usr/bin/docker:/usr/bin/docker --entrypoint=""'
+                } 
+            }
             steps {
-                echo 'Authenticating and pushing to AWS ECR...'
+                echo "Authenticating and pushing explicit tracking image: ${ECR_REGISTRY}:${IMAGE_TAG}"
                 sh "aws ecr get-login-password --region ${AWS_DEFAULT_REGION} | docker login --username AWS --password-stdin ${ECR_REGISTRY}"
                 sh "docker tag ${IMAGE_NAME}:${IMAGE_TAG} ${ECR_REGISTRY}:${IMAGE_TAG}"
                 sh "docker push ${ECR_REGISTRY}:${IMAGE_TAG}"
@@ -46,7 +61,7 @@ pipeline {
         }
 
         // ==========================================
-        // CD STAGES 
+        // CD STAGES
         // ==========================================
         stage('Deploy to Production EC2') {
             when { 
@@ -111,7 +126,12 @@ pipeline {
     post {
         always {
             node('') {
+                // Ingests test outputs directly into the dashboard framework UI
                 junit allowEmptyResults: true, testResults: 'test-results.xml'
+                
+                // Compiles and preserves raw source XML documents as structural run artifacts
+                archiveArtifacts artifacts: 'test-results.xml', allowEmptyArchive: true
+                
                 cleanWs()
             }
         }
