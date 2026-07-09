@@ -19,16 +19,19 @@ pipeline {
             steps {
                 checkout scm
             }
-        }
-
-        stage('Build Image') {
             steps {
                 echo "Building production image: ${IMAGE_NAME}:${IMAGE_TAG}"
                 sh "docker build -t ${IMAGE_NAME}:${IMAGE_TAG} ."
             }
         }
 
-        stage('Run Containerized Tests') {
+        stage('Test') {
+            agent { 
+                docker { 
+                    image 'python:3.10-slim'
+                    args '-u root -v /var/run/docker.sock:/var/run/docker.sock -v /usr/bin/docker:/usr/bin/docker --entrypoint=""'
+                } 
+            }
             steps {
                 echo 'Executing unit tests and exporting results...'
                 // Runs pytest and exports standard JUnit XML test reports out of the container volume
@@ -36,9 +39,16 @@ pipeline {
             }
         }
 
-        stage('Push to AWS ECR') {
+        stage('Push to ECR') {
+            agent { 
+                docker { 
+                    image 'amazon/aws-cli:latest'
+                    // Added '-u root' to solve the /.docker folder creation restriction
+                    args '-u root -v /var/run/docker.sock:/var/run/docker.sock -v /usr/bin/docker:/usr/bin/docker --entrypoint=""'
+                } 
+            }
             steps {
-                echo 'Authenticating with AWS ECR...'
+                echo "Authenticating and pushing explicit tracking image: ${ECR_REGISTRY}:${IMAGE_TAG}"
                 sh "aws ecr get-login-password --region ${AWS_DEFAULT_REGION} | docker login --username AWS --password-stdin ${ECR_REGISTRY}"
                 
                 echo "Pushing explicit reference tag to ECR: ${ECR_REGISTRY}:${IMAGE_TAG}"
@@ -52,14 +62,18 @@ pipeline {
         }
 
         // ==========================================
-        // CD STAGES (ONLY runs when merged to main/master)
+        // CD STAGES
         // ==========================================
         stage('Deploy to Production EC2') {
-            when {
-                anyOf {
-                    branch 'main'
-                    branch 'master'
-                }
+            when { 
+                beforeAgent true
+                anyOf { branch 'main'; branch 'master' } 
+            }
+            agent { 
+                docker { 
+                    image 'amazon/aws-cli:latest'
+                    args '-u root -v /var/run/docker.sock:/var/run/docker.sock -v /usr/bin/docker:/usr/bin/docker --entrypoint=""'
+                } 
             }
             steps {
                 echo 'Deploying fresh container version to Production EC2...'
@@ -82,15 +96,31 @@ pipeline {
         }
 
         stage('Health Verification') {
-            when {
-                anyOf {
-                    branch 'main'
-                    branch 'master'
-                }
+            when { 
+                beforeAgent true
+                anyOf { branch 'main'; branch 'master' } 
             }
+            agent { docker { image 'curlimages/curl:latest' } } 
             steps {
-                echo 'Executing application health check...'
-                sh "curl --fail http://${EC2_PUBLIC_IP}/ || exit 1"
+                echo 'Executing application health check loop against /health endpoint...'
+                sh """
+                   SUCCESS=0
+                   for i in {1..5}; do
+                       echo "Probing endpoint check attempt \$i..."
+                       if curl --fail http://${EC2_PUBLIC_IP}/health; then
+                           echo "App container is fully responding and healthy!"
+                           SUCCESS=1
+                           break
+                       fi
+                       echo "App not listening yet. Retrying in 5 seconds..."
+                       sleep 5
+                   done
+                   
+                   if [ \$SUCCESS -ne 1 ]; then
+                       echo "Health check failed after multiple attempts."
+                       exit 1
+                   fi
+                """
             }
         }
     }
