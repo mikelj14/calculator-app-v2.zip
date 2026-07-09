@@ -1,5 +1,5 @@
 pipeline {
-    agent none // Don't lock a global agent; specify them per stage
+    agent none 
 
     environment {
         AWS_ACCESS_KEY_ID     = credentials('AWS_ACCESS_KEY_ID')
@@ -14,7 +14,7 @@ pipeline {
 
     stages {
         // ==========================================
-        // CI STAGES (Runs on Host for Docker-in-Docker access)
+        // CI STAGES (Runs on Host for Docker-in-Docker engine access)
         // ==========================================
         stage('Build Container Image') {
             agent any
@@ -46,19 +46,24 @@ pipeline {
         }
 
         // ==========================================
-        // CD STAGES (Forced to run on Docker Agent)
+        // CD STAGES (Complies with DoD: Runs inside Docker Agent Containers)
         // ==========================================
         stage('Deploy to Production EC2') {
             when { anyOf { branch 'main'; branch 'master' } }
             agent { 
                 docker { 
-                    image 'chronosphereio/docker-with-aws-cli:latest' // Docker agent with both Docker and AWS capabilities
+                    image 'amazon/aws-cli:latest'
+                    // Mounts host binary capabilities and the docker communication socket
+                    args '-v /var/run/docker.sock:/var/run/docker.sock -v /usr/bin/docker:/usr/bin/docker --entrypoint=""'
                 } 
             }
             steps {
                 echo 'Deploying fresh container version to Production EC2...'
                 withCredentials([sshUserPrivateKey(credentialsId: 'ec2-ssh-key', keyFileVariable: 'SSH_KEY', usernameVariable: 'SSH_USER')]) {
                     sh """
+                       # Install standard ssh binaries inside the container engine environment
+                       yum install -y openssh-clients
+                       
                        ECR_TOKEN=\$(aws ecr get-login-password --region us-east-1)
                        ssh -o StrictHostKeyChecking=no -i ${SSH_KEY} ${SSH_USER}@${EC2_PUBLIC_IP} "
                            echo \$ECR_TOKEN | docker login --username AWS --password-stdin 992382545251.dkr.ecr.us-east-1.amazonaws.com
@@ -74,24 +79,24 @@ pipeline {
 
         stage('Health Verification') {
             when { anyOf { branch 'main'; branch 'master' } }
-            agent { docker { image 'badouralix/curl:latest' } } // Clean Docker agent container running curl
+            agent { docker { image 'badouralix/curl:latest' } } 
             steps {
-                echo 'Executing non-flaky /health verification with backoff retries...'
+                echo 'Executing application health check loop against /health endpoint...'
                 sh """
                    SUCCESS=0
                    for i in {1..5}; do
-                       echo "Probing health check attempt \$i..."
+                       echo "Probing endpoint check attempt \$i..."
                        if curl --fail http://${EC2_PUBLIC_IP}/health; then
-                           echo "App is healthy!"
+                           echo "App container is fully responding and healthy!"
                            SUCCESS=1
                            break
                        fi
-                       echo "App not ready yet, sleeping 5 seconds..."
+                       echo "App not listening yet. Retrying in 5 seconds..."
                        sleep 5
                    done
                    
                    if [ \$SUCCESS -ne 1 ]; then
-                       echo "Health check failed after 5 attempts."
+                       echo "Health check failed after multiple attempts."
                        exit 1
                    fi
                 """
@@ -101,7 +106,8 @@ pipeline {
 
     post {
         always {
-            node('built-in' || 'master') {
+            node {
+                // Ingests the output results cleanly using baseline built-in agent contexts
                 junit allowEmptyResults: true, testResults: 'test-results.xml'
                 cleanWs()
             }
