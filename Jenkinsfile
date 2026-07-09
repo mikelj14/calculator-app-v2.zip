@@ -1,9 +1,8 @@
 pipeline {
     // 1. Force all build/CI steps to run inside a managed Docker agent environment
     agent {
-        docker { 
-            image 'python:3.10-slim'
-            args '-u root' 
+        agent any { 
+        environment {
         }
     }
 
