@@ -34,17 +34,21 @@ pipeline {
             }
         }
 
-        stage('Push to AWS ECR') {
-            steps {
-                echo 'Authenticating with AWS ECR...'
-                sh "aws ecr get-login-password --region ${AWS_DEFAULT_REGION} | docker login --username AWS --password-stdin ${ECR_REGISTRY}"
-                
-                echo 'Tagging and pushing image to ECR repository...'
-                sh "docker tag ${IMAGE_NAME}:${IMAGE_TAG} ${ECR_REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG}"
-                sh "docker push ${ECR_REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG}"
-            }
-        }
+stage('Push to AWS ECR') {
+    steps {
+        echo 'Authenticating with AWS ECR...'
+        sh 'aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin 992382545251.dkr.ecr.us-east-1.amazonaws.com/ilan-calculator'
+        
+        echo "Tagging and pushing image version #${BUILD_NUMBER} to ECR repository..."
+        // Tag and push as latest
+        sh 'docker tag calculator-app:latest 992382545251.dkr.ecr.us-east-1.amazonaws.com/ilan-calculator:latest'
+        sh 'docker push 992382545251.dkr.ecr.us-east-1.amazonaws.com/ilan-calculator:latest'
+        
+        // Tag and push with the unique Jenkins build number
+        sh "docker tag calculator-app:latest 992382545251.dkr.ecr.us-east-1.amazonaws.com/ilan-calculator:build-${BUILD_NUMBER}"
+        sh "docker push 992382545251.dkr.ecr.us-east-1.amazonaws.com/ilan-calculator:build-${BUILD_NUMBER}"
     }
+}
 
     post {
         always {
