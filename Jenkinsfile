@@ -1,10 +1,5 @@
 pipeline {
-    // 1. Force all build/CI steps to run inside a managed Docker agent environment
-    agent {
-        agent any { 
-        environment {
-        }
-    }
+    agent any 
 
     environment {
         AWS_ACCESS_KEY_ID     = credentials('AWS_ACCESS_KEY_ID')
@@ -15,8 +10,8 @@ pipeline {
         ECR_REGISTRY          = '992382545251.dkr.ecr.us-east-1.amazonaws.com/ilan-calculator'
         EC2_PUBLIC_IP         = '3.84.115.81'
         
-        // 3. Generate a deterministic tag based on whether it is a PR or a Main merge build
-        IMAGE_TAG = "${CHANGE_ID ? 'pr-' + CHANGE_ID + '-' + BUILD_NUMBER : 'release-' + BUILD_NUMBER}"
+        // Dynamically tags image based on whether it is built from a PR branch or merged to main
+        IMAGE_TAG = "${env.CHANGE_ID ? 'pr-' + env.CHANGE_ID + '-' + env.BUILD_NUMBER : 'release-' + env.BUILD_NUMBER}"
     }
 
     stages {
@@ -29,7 +24,6 @@ pipeline {
         stage('Build Image') {
             steps {
                 echo "Building production image: ${IMAGE_NAME}:${IMAGE_TAG}"
-                // Interacts with host docker daemon sidecar setup
                 sh "docker build -t ${IMAGE_NAME}:${IMAGE_TAG} ."
             }
         }
@@ -37,7 +31,7 @@ pipeline {
         stage('Run Containerized Tests') {
             steps {
                 echo 'Executing unit tests and exporting results...'
-                // 2 & 5. Runs pytest and exports standard JUnit XML reports out of the container
+                // Runs pytest and exports standard JUnit XML test reports out of the container volume
                 sh "docker run --rm -v \$(pwd):/reports -e PYTHONPATH=/app ${IMAGE_NAME}:${IMAGE_TAG} pytest --junitxml=/reports/test-results.xml"
             }
         }
@@ -47,7 +41,7 @@ pipeline {
                 echo 'Authenticating with AWS ECR...'
                 sh "aws ecr get-login-password --region ${AWS_DEFAULT_REGION} | docker login --username AWS --password-stdin ${ECR_REGISTRY}"
                 
-                echo "4. Pushing explicit deterministic reference to ECR: ${ECR_REGISTRY}:${IMAGE_TAG}"
+                echo "Pushing explicit reference tag to ECR: ${ECR_REGISTRY}:${IMAGE_TAG}"
                 sh "docker tag ${IMAGE_NAME}:${IMAGE_TAG} ${ECR_REGISTRY}:${IMAGE_TAG}"
                 sh "docker push ${ECR_REGISTRY}:${IMAGE_TAG}"
                 
@@ -57,6 +51,9 @@ pipeline {
             }
         }
 
+        // ==========================================
+        // CD STAGES (ONLY runs when merged to main/master)
+        // ==========================================
         stage('Deploy to Production EC2') {
             when {
                 anyOf {
@@ -68,7 +65,10 @@ pipeline {
                 echo 'Deploying fresh container version to Production EC2...'
                 withCredentials([sshUserPrivateKey(credentialsId: 'ec2-ssh-key', keyFileVariable: 'SSH_KEY', usernameVariable: 'SSH_USER')]) {
                     sh """
+                       # 1. Generate ECR token locally on Jenkins
                        ECR_TOKEN=\$(aws ecr get-login-password --region us-east-1)
+                       
+                       # 2. Pass token over SSH and restart app container on port 80
                        ssh -o StrictHostKeyChecking=no -i ${SSH_KEY} ${SSH_USER}@${EC2_PUBLIC_IP} "
                            echo \$ECR_TOKEN | docker login --username AWS --password-stdin 992382545251.dkr.ecr.us-east-1.amazonaws.com
                            docker pull ${ECR_REGISTRY}:latest
@@ -97,7 +97,7 @@ pipeline {
 
     post {
         always {
-            // 5. Ingest and display test summaries in the Jenkins UI dashboard, then clear workspace
+            // Ingests and visually renders the pytest summaries inside the Jenkins build interface
             junit allowEmptyResults: true, testResults: 'test-results.xml'
             cleanWs() 
         }
