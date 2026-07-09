@@ -13,9 +13,11 @@ pipeline {
     }
 
     stages {
-        // ==========================================
-        // CI STAGES 
-        // ==========================================
+        // =====================================================================
+        // CI STAGES (Dockerized Agents)
+        // =====================================================================
+        
+        // Stage 1: Build Container Image
         stage('Build Container Image') {
             agent { 
                 docker { 
@@ -30,6 +32,7 @@ pipeline {
             }
         }
 
+        // Stage 2: Test (PR Quality Gates)
         stage('Test') {
             agent { 
                 docker { 
@@ -43,6 +46,7 @@ pipeline {
             }
         }
 
+        // Stage 3: Push to ECR
         stage('Push to ECR') {
             agent { 
                 docker { 
@@ -60,9 +64,11 @@ pipeline {
             }
         }
 
-        // ==========================================
-        // CD STAGES
-        // ==========================================
+        // =====================================================================
+        // CD STAGES (Enforces Dockerized Agents & Conditional Run Rules)
+        // =====================================================================
+        
+        // Stage 4: Deploy to Production EC2
         stage('Deploy to Production EC2') {
             when { 
                 beforeAgent true
@@ -93,12 +99,17 @@ pipeline {
             }
         }
 
+        // Stage 5: Health Verification (With Retries and Backoff Delay)
         stage('Health Verification') {
             when { 
                 beforeAgent true
                 anyOf { branch 'main'; branch 'master' } 
             }
-            agent { docker { image 'curlimages/curl:latest' } } 
+            agent { 
+                docker { 
+                    image 'curlimages/curl:latest' 
+                } 
+            } 
             steps {
                 echo 'Executing application health check loop against /health endpoint...'
                 sh """
