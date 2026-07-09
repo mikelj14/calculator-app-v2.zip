@@ -75,6 +75,11 @@ def home():
         "operand": calc.operand
     })
 
-# Main runtime execution execution block (Unindented completely out of the class context)
+# Clean, separate health route for your Jenkins pipeline verification
+@app.route('/health')
+def health():
+    return jsonify({"status": "healthy"}), 200
+
+# Main runtime execution block
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000)
