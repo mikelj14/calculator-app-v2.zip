@@ -14,7 +14,7 @@ pipeline {
 
     stages {
         // ==========================================
-        // CI STAGES (Runs on Host for Docker-in-Docker engine access)
+        // CI STAGES 
         // ==========================================
         stage('Build Container Image') {
             agent any
@@ -46,14 +46,16 @@ pipeline {
         }
 
         // ==========================================
-        // CD STAGES (Complies with DoD: Runs inside Docker Agent Containers)
+        // CD STAGES 
         // ==========================================
         stage('Deploy to Production EC2') {
-            when { anyOf { branch 'main'; branch 'master' } }
+            when { 
+                beforeAgent true
+                anyOf { branch 'main'; branch 'master' } 
+            }
             agent { 
                 docker { 
                     image 'amazon/aws-cli:latest'
-                    // Mounts host binary capabilities and the docker communication socket
                     args '-v /var/run/docker.sock:/var/run/docker.sock -v /usr/bin/docker:/usr/bin/docker --entrypoint=""'
                 } 
             }
@@ -61,7 +63,6 @@ pipeline {
                 echo 'Deploying fresh container version to Production EC2...'
                 withCredentials([sshUserPrivateKey(credentialsId: 'ec2-ssh-key', keyFileVariable: 'SSH_KEY', usernameVariable: 'SSH_USER')]) {
                     sh """
-                       # Install standard ssh binaries inside the container engine environment
                        yum install -y openssh-clients
                        
                        ECR_TOKEN=\$(aws ecr get-login-password --region us-east-1)
@@ -78,8 +79,11 @@ pipeline {
         }
 
         stage('Health Verification') {
-            when { anyOf { branch 'main'; branch 'master' } }
-            agent { docker { image 'badouralix/curl:latest' } } 
+            when { 
+                beforeAgent true
+                anyOf { branch 'main'; branch 'master' } 
+            }
+            agent { docker { image 'curlimages/curl:latest' } } 
             steps {
                 echo 'Executing application health check loop against /health endpoint...'
                 sh """
@@ -107,7 +111,6 @@ pipeline {
     post {
         always {
             node('') {
-                // Ingests the output results cleanly using baseline built-in agent contexts
                 junit allowEmptyResults: true, testResults: 'test-results.xml'
                 cleanWs()
             }
