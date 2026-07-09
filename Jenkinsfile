@@ -14,13 +14,13 @@ pipeline {
 
     stages {
         // ==========================================
-        // CI STAGES (Forced to run on isolated Docker Agents)
+        // CI STAGES (Runs inside isolated Docker Agent Containers)
         // ==========================================
         stage('Build Container Image') {
             agent { 
                 docker { 
-                    image 'docker:latest'
-                    args '-v /var/run/docker.sock:/var/run/docker.sock'
+                    image 'python:3.10-slim'
+                    args '-u root -v /var/run/docker.sock:/var/run/docker.sock -v /usr/bin/docker:/usr/bin/docker --entrypoint=""'
                 } 
             }
             steps {
@@ -33,8 +33,8 @@ pipeline {
         stage('Test') {
             agent { 
                 docker { 
-                    image 'docker:latest'
-                    args '-v /var/run/docker.sock:/var/run/docker.sock'
+                    image 'python:3.10-slim'
+                    args '-u root -v /var/run/docker.sock:/var/run/docker.sock -v /usr/bin/docker:/usr/bin/docker --entrypoint=""'
                 } 
             }
             steps {
