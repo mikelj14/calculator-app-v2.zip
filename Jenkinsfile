@@ -14,7 +14,7 @@ pipeline {
 
     stages {
         // ==========================================
-        // CI STAGES (Runs inside isolated Docker Agent Containers)
+        // CI STAGES 
         // ==========================================
         stage('Build Container Image') {
             agent { 
@@ -103,7 +103,7 @@ pipeline {
                 echo 'Executing application health check loop against /health endpoint...'
                 sh """
                    SUCCESS=0
-                   for i in {1..5}; do
+                   for i in \$(seq 1 5); do
                        echo "Probing endpoint check attempt \$i..."
                        if curl --fail http://${EC2_PUBLIC_IP}/health; then
                            echo "App container is fully responding and healthy!"
@@ -126,12 +126,8 @@ pipeline {
     post {
         always {
             node('') {
-                // Ingests test outputs directly into the dashboard framework UI
                 junit allowEmptyResults: true, testResults: 'test-results.xml'
-                
-                // Compiles and preserves raw source XML documents as structural run artifacts
                 archiveArtifacts artifacts: 'test-results.xml', allowEmptyArchive: true
-                
                 cleanWs()
             }
         }
