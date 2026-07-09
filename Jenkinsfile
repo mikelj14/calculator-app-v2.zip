@@ -106,7 +106,7 @@ pipeline {
 
     post {
         always {
-            node {
+            node('') {
                 // Ingests the output results cleanly using baseline built-in agent contexts
                 junit allowEmptyResults: true, testResults: 'test-results.xml'
                 cleanWs()
