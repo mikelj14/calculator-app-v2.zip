@@ -14,7 +14,7 @@ pipeline {
 
     stages {
         // ==========================================
-        // CI STAGES (Runs inside isolated Docker Agent Containers)
+        // CI STAGES 
         // ==========================================
         stage('Build Container Image') {
             agent { 
@@ -47,7 +47,8 @@ pipeline {
             agent { 
                 docker { 
                     image 'amazon/aws-cli:latest'
-                    args '-v /var/run/docker.sock:/var/run/docker.sock -v /usr/bin/docker:/usr/bin/docker --entrypoint=""'
+                    // Added '-u root' to solve the /.docker folder creation restriction
+                    args '-u root -v /var/run/docker.sock:/var/run/docker.sock -v /usr/bin/docker:/usr/bin/docker --entrypoint=""'
                 } 
             }
             steps {
@@ -71,7 +72,7 @@ pipeline {
             agent { 
                 docker { 
                     image 'amazon/aws-cli:latest'
-                    args '-v /var/run/docker.sock:/var/run/docker.sock -v /usr/bin/docker:/usr/bin/docker --entrypoint=""'
+                    args '-u root -v /var/run/docker.sock:/var/run/docker.sock -v /usr/bin/docker:/usr/bin/docker --entrypoint=""'
                 } 
             }
             steps {
@@ -126,12 +127,8 @@ pipeline {
     post {
         always {
             node('') {
-                // Ingests test outputs directly into the dashboard framework UI
                 junit allowEmptyResults: true, testResults: 'test-results.xml'
-                
-                // Compiles and preserves raw source XML documents as structural run artifacts
                 archiveArtifacts artifacts: 'test-results.xml', allowEmptyArchive: true
-                
                 cleanWs()
             }
         }
