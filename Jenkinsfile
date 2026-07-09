@@ -29,7 +29,7 @@ pipeline {
             steps {
                 echo 'Spinning up test container to execute unit tests...'
                 // Spins up the built image to run tests internally, ensuring the image environment works
-                sh "docker run --rm ${IMAGE_NAME}:${IMAGE_TAG} pytest" 
+                sh 'docker run --rm -e PYTHONPATH=/app calculator-app:latest pytest'
                 // Note: If Python/pytest app, change "npm test" to "pytest"
             }
         }
