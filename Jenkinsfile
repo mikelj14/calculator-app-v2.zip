@@ -9,9 +9,13 @@ pipeline {
         IMAGE_NAME            = 'calculator-app'
         IMAGE_TAG             = 'latest'
         ECR_REGISTRY          = '992382545251.dkr.ecr.us-east-1.amazonaws.com/ilan-calculator'
+        EC2_PUBLIC_IP         = '3.84.115.81'
     }
 
     stages {
+        // ==========================================
+        // COMMON STAGES (Runs on both PRs and Main)
+        // ==========================================
         stage('Checkout') {
             steps {
                 checkout scm
@@ -37,15 +41,50 @@ pipeline {
                 echo 'Authenticating with AWS ECR...'
                 sh "aws ecr get-login-password --region ${AWS_DEFAULT_REGION} | docker login --username AWS --password-stdin ${ECR_REGISTRY}"
                 
-                echo "Tagging and pushing image version build-${BUILD_NUMBER} to ECR repository..."
-                
-                // Tag and push as latest
+                echo "Tagging and pushing image version build-${BUILD_NUMBER} to ECR..."
                 sh "docker tag ${IMAGE_NAME}:${IMAGE_TAG} ${ECR_REGISTRY}:latest"
                 sh "docker push ${ECR_REGISTRY}:latest"
-                
-                // Tag and push with the unique Jenkins build number
                 sh "docker tag ${IMAGE_NAME}:${IMAGE_TAG} ${ECR_REGISTRY}:build-${BUILD_NUMBER}"
                 sh "docker push ${ECR_REGISTRY}:build-${BUILD_NUMBER}"
+            }
+        }
+
+        // ==========================================
+        // CD STAGES (ONLY runs when merged to main/master)
+        // ==========================================
+        stage('Deploy to Production EC2') {
+            when {
+                anyOf {
+                    branch 'main'
+                    branch 'master'
+                }
+            }
+            steps {
+                echo 'Deploying fresh container version to Production EC2...'
+                // Adjust SSH commands/scripts based on how you pull and run on your EC2 instance
+                sh """
+                   ssh -o StrictHostKeyChecking=no ubuntu@${EC2_PUBLIC_IP} '
+                       aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin 992382545251.dkr.ecr.us-east-1.amazonaws.com
+                       docker pull ${ECR_REGISTRY}:latest
+                       docker stop ${IMAGE_NAME} || true
+                       docker rm ${IMAGE_NAME} || true
+                       docker run -d --name ${IMAGE_NAME} -p 80:5000 ${ECR_REGISTRY}:latest
+                   '
+                """
+            }
+        }
+
+        stage('Health Verification') {
+            when {
+                anyOf {
+                    branch 'main'
+                    branch 'master'
+                }
+            }
+            steps {
+                echo 'Executing application health check...'
+                // Pings your EC2 endpoint to ensure a 200 OK status code response
+                sh "curl --fail http://${EC2_PUBLIC_IP}/ || exit 1"
             }
         }
     }
