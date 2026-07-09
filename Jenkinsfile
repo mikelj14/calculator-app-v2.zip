@@ -59,9 +59,8 @@ pipeline {
                     branch 'master'
                 }
             }
-        steps {
+            steps {
                 echo 'Deploying fresh container version to Production EC2...'
-                // This injects your credential file securely into a temporary variable path ($SSH_KEY)
                 withCredentials([sshUserPrivateKey(credentialsId: 'ec2-ssh-key', keyFileVariable: 'SSH_KEY', usernameVariable: 'SSH_USER')]) {
                     sh """
                        ssh -o StrictHostKeyChecking=no -i ${SSH_KEY} ${SSH_USER}@${EC2_PUBLIC_IP} '
@@ -72,7 +71,7 @@ pipeline {
                            docker run -d --name ${IMAGE_NAME} -p 80:5000 ${ECR_REGISTRY}:latest
                        '
                     """
-                """
+                }
             }
         }
 
@@ -85,7 +84,6 @@ pipeline {
             }
             steps {
                 echo 'Executing application health check...'
-                // Pings your EC2 endpoint to ensure a 200 OK status code response
                 sh "curl --fail http://${EC2_PUBLIC_IP}/ || exit 1"
             }
         }
