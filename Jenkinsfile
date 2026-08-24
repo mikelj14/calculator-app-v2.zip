@@ -13,10 +13,6 @@ pipeline {
     }
 
     stages {
-        // =====================================================================
-        // CI STAGES (Dockerized Agents)
-        // =====================================================================
-        
         // Stage 1: Build Container Image
         stage('Build Container Image') {
             agent { 
@@ -46,29 +42,7 @@ pipeline {
             }
         }
 
-        // Stage 3: Push to ECR
-        stage('Push to ECR') {
-            agent { 
-                docker { 
-                    image 'amazon/aws-cli:latest'
-                    args '-u root -v /var/run/docker.sock:/var/run/docker.sock -v /usr/bin/docker:/usr/bin/docker --entrypoint=""'
-                } 
-            }
-            steps {
-                echo "Authenticating and pushing explicit tracking image: ${ECR_REGISTRY}:${IMAGE_TAG}"
-                sh "aws ecr get-login-password --region ${AWS_DEFAULT_REGION} | docker login --username AWS --password-stdin ${ECR_REGISTRY}"
-                sh "docker tag ${IMAGE_NAME}:${IMAGE_TAG} ${ECR_REGISTRY}:${IMAGE_TAG}"
-                sh "docker push ${ECR_REGISTRY}:${IMAGE_TAG}"
-                sh "docker tag ${IMAGE_NAME}:${IMAGE_TAG} ${ECR_REGISTRY}:latest"
-                sh "docker push ${ECR_REGISTRY}:latest"
-            }
-        }
-
-        // =====================================================================
-        // CD STAGES (Enforces Dockerized Agents & Conditional Run Rules)
-        // =====================================================================
-
-        // Stage 4: Provision Infrastructure
+        // Stage 3: Provision Infrastructure (Moved before Push to ECR)
         stage('Provision Infrastructure') {
             when { 
                 beforeAgent true
@@ -92,7 +66,25 @@ pipeline {
                 '''
             }
         }
-        
+
+        // Stage 4: Push to ECR
+        stage('Push to ECR') {
+            agent { 
+                docker { 
+                    image 'amazon/aws-cli:latest'
+                    args '-u root -v /var/run/docker.sock:/var/run/docker.sock -v /usr/bin/docker:/usr/bin/docker --entrypoint=""'
+                } 
+            }
+            steps {
+                echo "Authenticating and pushing explicit tracking image: ${ECR_REGISTRY}:${IMAGE_TAG}"
+                sh "aws ecr get-login-password --region ${AWS_DEFAULT_REGION} | docker login --username AWS --password-stdin ${ECR_REGISTRY}"
+                sh "docker tag ${IMAGE_NAME}:${IMAGE_TAG} ${ECR_REGISTRY}:${IMAGE_TAG}"
+                sh "docker push ${ECR_REGISTRY}:${IMAGE_TAG}"
+                sh "docker tag ${IMAGE_NAME}:${IMAGE_TAG} ${ECR_REGISTRY}:latest"
+                sh "docker push ${ECR_REGISTRY}:latest"
+            }
+        }
+
         // Stage 5: Deploy to Production EC2
         stage('Deploy to Production EC2') {
             when { 
@@ -124,7 +116,7 @@ pipeline {
             }
         }
 
-        // Stage 6: Health Verification (With Retries and Backoff Delay)
+        // Stage 6: Health Verification
         stage('Health Verification') {
             when { 
                 beforeAgent true
