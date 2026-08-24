@@ -67,8 +67,33 @@ pipeline {
         // =====================================================================
         // CD STAGES (Enforces Dockerized Agents & Conditional Run Rules)
         // =====================================================================
+
+        // Stage 4: Provision Infrastructure
+        stage('Provision Infrastructure') {
+            when { 
+                beforeAgent true
+                anyOf { branch 'main'; branch 'master' } 
+            }
+            agent any
+            steps {
+                echo 'Provisioning infrastructure with Terraform...'
+                sh '''
+                    docker run --rm -v $(pwd):/workspace -w /workspace \
+                      -e AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID} \
+                      -e AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY} \
+                      -e AWS_DEFAULT_REGION=us-east-1 \
+                      hashicorp/terraform:latest init
+
+                    docker run --rm -v $(pwd):/workspace -w /workspace \
+                      -e AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID} \
+                      -e AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY} \
+                      -e AWS_DEFAULT_REGION=us-east-1 \
+                      hashicorp/terraform:latest apply -auto-approve
+                '''
+            }
+        }
         
-        // Stage 4: Deploy to Production EC2
+        // Stage 5: Deploy to Production EC2
         stage('Deploy to Production EC2') {
             when { 
                 beforeAgent true
@@ -84,22 +109,22 @@ pipeline {
                 echo 'Deploying fresh container version to Production EC2...'
                 withCredentials([sshUserPrivateKey(credentialsId: 'ec2-ssh-key', keyFileVariable: 'SSH_KEY', usernameVariable: 'SSH_USER')]) {
                     sh """
-                       yum install -y openssh-clients
-                       
-                       ECR_TOKEN=\$(aws ecr get-login-password --region us-east-1)
-                       ssh -o StrictHostKeyChecking=no -i ${SSH_KEY} ${SSH_USER}@${EC2_PUBLIC_IP} "
-                           echo \$ECR_TOKEN | docker login --username AWS --password-stdin 992382545251.dkr.ecr.us-east-1.amazonaws.com
-                           docker pull ${ECR_REGISTRY}:latest
-                           docker stop ${IMAGE_NAME} || true
-                           docker rm ${IMAGE_NAME} || true
-                           docker run -d --name ${IMAGE_NAME} -p 80:5000 ${ECR_REGISTRY}:latest
-                       "
+                        yum install -y openssh-clients
+                        
+                        ECR_TOKEN=\$(aws ecr get-login-password --region us-east-1)
+                        ssh -o StrictHostKeyChecking=no -i ${SSH_KEY} ${SSH_USER}@${EC2_PUBLIC_IP} "
+                            echo \$ECR_TOKEN | docker login --username AWS --password-stdin 992382545251.dkr.ecr.us-east-1.amazonaws.com
+                            docker pull ${ECR_REGISTRY}:latest
+                            docker stop ${IMAGE_NAME} || true
+                            docker rm ${IMAGE_NAME} || true
+                            docker run -d --name ${IMAGE_NAME} -p 80:5000 ${ECR_REGISTRY}:latest
+                        "
                     """
                 }
             }
         }
 
-        // Stage 5: Health Verification (With Retries and Backoff Delay)
+        // Stage 6: Health Verification (With Retries and Backoff Delay)
         stage('Health Verification') {
             when { 
                 beforeAgent true
