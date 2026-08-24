@@ -42,7 +42,7 @@ pipeline {
             }
         }
 
-        // Stage 3: Provision Infrastructure (Moved before Push to ECR)
+        // Stage 3: Provision Infrastructure (Creates ECR Repository via Terraform)
         stage('Provision Infrastructure') {
             when { 
                 beforeAgent true
