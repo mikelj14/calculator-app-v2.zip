@@ -44,7 +44,16 @@ pipeline {
 
                 echo "Executing verification tests for build reference: ${IMAGE_NAME}:${IMAGE_TAG}"
 
-                sh "docker run --rm -v \$(pwd):/reports -e PYTHONPATH=/app ${IMAGE_NAME}:${IMAGE_TAG} pytest --junitxml=/reports/test-results.xml"
+                sh """
+                    CONTAINER_ID=\$(hostname)
+
+                    docker run --rm \
+                      --volumes-from "\${CONTAINER_ID}" \
+                      -w "\$(pwd)" \
+                      -e PYTHONPATH=/app \
+                      ${IMAGE_NAME}:${IMAGE_TAG} \
+                      pytest --junitxml="\$(pwd)/test-results.xml"
+                """
             }
         }
 
@@ -78,17 +87,19 @@ pipeline {
                     find . -maxdepth 1 -name "*.tf" -print
                     echo "========================================="
 
+                    CONTAINER_ID=$(hostname)
+
                     docker run --rm \
-                      -v "$(pwd):/workspace" \
-                      -w /workspace \
+                      --volumes-from "${CONTAINER_ID}" \
+                      -w "$(pwd)" \
                       -e AWS_ACCESS_KEY_ID="${AWS_ACCESS_KEY_ID}" \
                       -e AWS_SECRET_ACCESS_KEY="${AWS_SECRET_ACCESS_KEY}" \
                       -e AWS_DEFAULT_REGION="${AWS_DEFAULT_REGION}" \
                       hashicorp/terraform:latest init
 
                     docker run --rm \
-                      -v "$(pwd):/workspace" \
-                      -w /workspace \
+                      --volumes-from "${CONTAINER_ID}" \
+                      -w "$(pwd)" \
                       -e AWS_ACCESS_KEY_ID="${AWS_ACCESS_KEY_ID}" \
                       -e AWS_SECRET_ACCESS_KEY="${AWS_SECRET_ACCESS_KEY}" \
                       -e AWS_DEFAULT_REGION="${AWS_DEFAULT_REGION}" \
