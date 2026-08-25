@@ -154,21 +154,24 @@ to account for both.
 
 ## Key DevOps Lessons
 
-- CI execution environments must be explicitly understood — nothing is
-  available by default just because it "usually is."
-- Credentials and installed tooling are separate concerns; having one
-  doesn't imply the other.
-- Docker containers isolate filesystem and tooling per stage — a
-  Jenkins-host path or binary isn't visible inside a container unless
-  explicitly provided.
-- Stage-specific Docker agents make CI dependencies predictable: each
-  stage gets exactly the tools it needs, no more, no less.
-- Groovy string interpolation and shell interpolation happen at different
-  layers — escaping for one without accounting for the other produces
-  silent, confusing syntax errors.
-- When a pipeline fails, it's worth identifying which layer failed —
-  Groovy → Jenkins → shell → Docker → AWS — before assuming the top-level
-  symptom is the root cause.
+- 🗂️ **Problem:** A container doesn't see the host's filesystem by magic.
+  **Fix:** Mount volumes explicitly instead of assuming Docker-in-Docker
+  shares the Jenkins workspace.
+- 🔑 **Problem:** Credentials were injected correctly, but the CLI that
+  needed them wasn't installed. **Fix:** Give each stage its own
+  purpose-built Docker agent (`amazon/aws-cli`, `curlimages/curl`, etc.)
+  instead of relying on a shared environment.
+- 🔒 **Problem:** `docker login` to ECR failed with a 400. **Fix:** Traced
+  it to the missing-CLI issue above — same root cause, different symptom.
+- 🧩 **Problem:** Groovy and Bash both interpret `$` and quotes — escaping
+  for one broke the other. **Fix:** Use Groovy triple-single-quotes
+  (`'''...'''`) for shell blocks so only Bash touches `$()`/`$VAR`.
+- 🐛 **Problem:** A scary Jenkins log line (`Selected Git installation does
+  not exist`) turned out to be a harmless warning. **Fix:** Learned to
+  check whether the *stage actually failed* before chasing a log line.
+- 🎯 **Takeaway:** When a pipeline breaks, find which layer failed —
+  Groovy → Jenkins → shell → Docker → AWS — before assuming the top error
+  message is the root cause.
 
 ## Technologies
 
