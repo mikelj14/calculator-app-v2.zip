@@ -8,7 +8,7 @@ pipeline {
         AWS_ACCOUNT_ID        = '992382545251' 
         IMAGE_NAME            = 'calculator-app'
         ECR_REGISTRY          = '992382545251.dkr.ecr.us-east-1.amazonaws.com/ilan-calculator'
-        EC2_PUBLIC_IP         = '3.84.115.81'
+        EC2_PUBLIC_IP         = '100.58.191.9'
         IMAGE_TAG             = "${env.CHANGE_ID ? 'pr-' + env.CHANGE_ID + '-' + env.BUILD_NUMBER : 'release-' + env.BUILD_NUMBER}"
     }
 
