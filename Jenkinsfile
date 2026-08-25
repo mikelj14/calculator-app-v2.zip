@@ -1,11 +1,11 @@
 pipeline {
-    agent none 
+    agent none
 
     environment {
         AWS_ACCESS_KEY_ID     = credentials('AWS_ACCESS_KEY_ID')
         AWS_SECRET_ACCESS_KEY = credentials('AWS_SECRET_ACCESS_KEY')
-        AWS_DEFAULT_REGION    = 'us-east-1' 
-        AWS_ACCOUNT_ID        = '992382545251' 
+        AWS_DEFAULT_REGION    = 'us-east-1'
+        AWS_ACCOUNT_ID        = '992382545251'
         IMAGE_NAME            = 'calculator-app'
         ECR_REGISTRY          = '992382545251.dkr.ecr.us-east-1.amazonaws.com/ilan-calculator'
         EC2_PUBLIC_IP         = '100.58.191.9'
@@ -16,12 +16,13 @@ pipeline {
 
         // Stage 1: Build Container Image
         stage('Build Container Image') {
-            agent { 
-                docker { 
+            agent {
+                docker {
                     image 'python:3.10-slim'
                     args '-u root -v /var/run/docker.sock:/var/run/docker.sock -v /usr/bin/docker:/usr/bin/docker --entrypoint=""'
-                } 
+                }
             }
+
             steps {
                 checkout scm
 
@@ -33,12 +34,13 @@ pipeline {
 
         // Stage 2: Test
         stage('Test') {
-            agent { 
-                docker { 
+            agent {
+                docker {
                     image 'python:3.10-slim'
                     args '-u root -v /var/run/docker.sock:/var/run/docker.sock -v /usr/bin/docker:/usr/bin/docker --entrypoint=""'
-                } 
+                }
             }
+
             steps {
                 checkout scm
 
@@ -59,12 +61,12 @@ pipeline {
 
         // Stage 3: Provision Infrastructure
         stage('Provision Infrastructure') {
-            when { 
+            when {
                 beforeAgent true
-                anyOf { 
+                anyOf {
                     branch 'main'
                     branch 'master'
-                } 
+                }
             }
 
             agent any
@@ -110,12 +112,13 @@ pipeline {
 
         // Stage 4: Push to ECR
         stage('Push to ECR') {
-            agent { 
-                docker { 
+            agent {
+                docker {
                     image 'amazon/aws-cli:latest'
                     args '-u root -v /var/run/docker.sock:/var/run/docker.sock -v /usr/bin/docker:/usr/bin/docker --entrypoint=""'
-                } 
+                }
             }
+
             steps {
                 echo "Authenticating and pushing image: ${ECR_REGISTRY}:${IMAGE_TAG}"
 
@@ -133,19 +136,19 @@ pipeline {
 
         // Stage 5: Deploy to Production EC2
         stage('Deploy to Production EC2') {
-            when { 
+            when {
                 beforeAgent true
-                anyOf { 
+                anyOf {
                     branch 'main'
                     branch 'master'
-                } 
+                }
             }
 
-            agent { 
-                docker { 
+            agent {
+                docker {
                     image 'amazon/aws-cli:latest'
                     args '-u root -v /var/run/docker.sock:/var/run/docker.sock -v /usr/bin/docker:/usr/bin/docker --entrypoint=""'
-                } 
+                }
             }
 
             steps {
@@ -159,37 +162,53 @@ pipeline {
                     )
                 ]) {
 
-                    sh """
+                    sh '''
+                        set -e
+
+                        echo "Installing SSH client..."
                         yum install -y openssh-clients
 
-                        ECR_TOKEN=\\\$(aws ecr get-login-password --region us-east-1)
+                        echo "Getting ECR authentication token..."
+                        ECR_TOKEN=$(aws ecr get-login-password --region "${AWS_DEFAULT_REGION}")
 
-                        ssh -o StrictHostKeyChecking=no -i ${SSH_KEY} ${SSH_USER}@${EC2_PUBLIC_IP} "
-                            echo \\\$ECR_TOKEN | docker login --username AWS --password-stdin ${ECR_REGISTRY}
-                            docker pull ${ECR_REGISTRY}:latest
-                            docker stop ${IMAGE_NAME} || true
-                            docker rm ${IMAGE_NAME} || true
-                            docker run -d --name ${IMAGE_NAME} -p 80:5000 ${ECR_REGISTRY}:latest
-                        "
-                    """
+                        echo "Connecting to production EC2..."
+
+                        ssh \
+                            -o StrictHostKeyChecking=no \
+                            -i "$SSH_KEY" \
+                            "$SSH_USER@$EC2_PUBLIC_IP" \
+                            "echo '$ECR_TOKEN' | docker login --username AWS --password-stdin '${ECR_REGISTRY}' && \
+                             docker pull '${ECR_REGISTRY}:latest' && \
+                             docker stop '${IMAGE_NAME}' || true"
+
+                        ssh \
+                            -o StrictHostKeyChecking=no \
+                            -i "$SSH_KEY" \
+                            "$SSH_USER@$EC2_PUBLIC_IP" \
+                            "docker rm '${IMAGE_NAME}' || true && \
+                             docker run -d \
+                               --name '${IMAGE_NAME}' \
+                               -p 80:5000 \
+                               '${ECR_REGISTRY}:latest'"
+                    '''
                 }
             }
         }
 
         // Stage 6: Health Verification
         stage('Health Verification') {
-            when { 
+            when {
                 beforeAgent true
-                anyOf { 
+                anyOf {
                     branch 'main'
                     branch 'master'
-                } 
+                }
             }
 
-            agent { 
-                docker { 
-                    image 'curlimages/curl:latest' 
-                } 
+            agent {
+                docker {
+                    image 'curlimages/curl:latest'
+                }
             }
 
             steps {
