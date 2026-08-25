@@ -8,7 +8,7 @@ pipeline {
         AWS_ACCOUNT_ID        = '992382545251'
         IMAGE_NAME            = 'calculator-app'
         ECR_REGISTRY          = '992382545251.dkr.ecr.us-east-1.amazonaws.com/ilan-calculator'
-        EC2_PUBLIC_IP         = '100.58.191.9'
+        EC2_PUBLIC_IP         = '54.88.230.221'
         IMAGE_TAG             = "${env.CHANGE_ID ? 'pr-' + env.CHANGE_ID + '-' + env.BUILD_NUMBER : 'release-' + env.BUILD_NUMBER}"
     }
 
@@ -169,16 +169,31 @@ pipeline {
                         yum install -y openssh-clients
 
                         echo "Getting ECR authentication token..."
+
+                        # --- sensitive section: no command echoing while the token exists ---
+                        set +x
                         ECR_TOKEN=$(aws ecr get-login-password --region "${AWS_DEFAULT_REGION}")
 
                         echo "Connecting to production EC2..."
+
+                        # Pipe the token in via stdin instead of embedding it in the remote
+                        # command string, so it never appears as literal text in this script,
+                        # in Jenkins' console output, or in `ps` output on either host.
+                        echo "$ECR_TOKEN" | ssh \
+                            -o StrictHostKeyChecking=no \
+                            -i "$SSH_KEY" \
+                            "$SSH_USER@$EC2_PUBLIC_IP" \
+                            "docker login --username AWS --password-stdin '${ECR_REGISTRY}'"
+
+                        unset ECR_TOKEN
+                        set -x
+                        # --- end sensitive section ---
 
                         ssh \
                             -o StrictHostKeyChecking=no \
                             -i "$SSH_KEY" \
                             "$SSH_USER@$EC2_PUBLIC_IP" \
-                            "echo '$ECR_TOKEN' | docker login --username AWS --password-stdin '${ECR_REGISTRY}' && \
-                             docker pull '${ECR_REGISTRY}:latest' && \
+                            "docker pull '${ECR_REGISTRY}:latest' && \
                              docker stop '${IMAGE_NAME}' || true"
 
                         ssh \
@@ -214,13 +229,13 @@ pipeline {
             steps {
                 echo 'Executing application health check loop against /health endpoint...'
 
-                sh """
+                sh '''
                     SUCCESS=0
 
-                    for i in \\\$(seq 1 5); do
-                        echo "Probing endpoint check attempt \\\$i..."
+                    for i in $(seq 1 5); do
+                        echo "Probing endpoint check attempt $i..."
 
-                        if curl --fail http://${EC2_PUBLIC_IP}/health; then
+                        if curl --fail "http://${EC2_PUBLIC_IP}/health"; then
                             echo "App container is fully responding and healthy!"
                             SUCCESS=1
                             break
@@ -230,11 +245,11 @@ pipeline {
                         sleep 5
                     done
 
-                    if [ \\\$SUCCESS -ne 1 ]; then
+                    if [ "$SUCCESS" -ne 1 ]; then
                         echo "Health check failed after multiple attempts."
                         exit 1
                     fi
-                """
+                '''
             }
         }
     }
